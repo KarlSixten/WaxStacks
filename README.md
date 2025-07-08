@@ -45,15 +45,15 @@ DISCOGS_USERNAME=your_discogs_username_here
 
 ### 4️⃣ Run the app
 ```bash
-node index.js
+node app.js
 ```
 ---
 
 ### 5️⃣ Follow the CLI prompts
- 🔑 Enter your Discogs token and username (if not already set in .env)
- 💴 Select your desired currency for marketplace pricing
- 💸 Define your custom price brackets (e.g., 10,25,50,100,250)
- 📦 Let the app automatically organize your collection into price-based folders
+- 🔑 Enter your Discogs token and username (if not already set in .env)
+- 💴 Select your desired currency for marketplace pricing
+- 💸 Define your custom price brackets (e.g., 10,25,50,100,250)
+- 📦 Let the app automatically organize your collection into price-based folders
 
 ## 📖 Tech Stack
 
