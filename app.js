@@ -1,31 +1,47 @@
 import 'dotenv/config';
 import Discogs from 'disconnect';
 
-const DISCOGS_TOKEN = process.env.DISCOGS_TOKEN;
-const DISCOGS_USERNAME = process.env.DISCOGS_USERNAME;
+import { enterDiscogsToken, enterDiscogsUsername, selectCurrency, selectPriceBrackets } from './prompts.js';
+
+const currencyChoices = [
+    { name: 'USD', value: '$' },
+    { name: 'GBP', value: '£' },
+    { name: 'EUR', value: '€' },
+    { name: 'CAD', value: 'C$' },
+    { name: 'AUD', value: 'A$' },
+    { name: 'JPY', value: '¥' },
+    { name: 'CHF', value: 'CHF' },
+    { name: 'MXN', value: 'Mex$' },
+    { name: 'BRL', value: 'R$' },
+    { name: 'NZD', value: 'NZ$' },
+    { name: 'SEK', value: 'kr' },
+    { name: 'ZAR', value: 'R' },
+];
+
+let DISCOGS_USERNAME = process.env.DISCOGS_USERNAME ? process.env.DISCOGS_USERNAME : await enterDiscogsUsername();
+let DISCOGS_TOKEN = process.env.DISCOGS_TOKEN ? process.env.DISCOGS_TOKEN : await enterDiscogsToken();
+let selectedCurrency = await selectCurrency(currencyChoices);
+let priceBrackets = await selectPriceBrackets(selectedCurrency.name);
 
 const discogs = new Discogs.Client({
-  userToken: DISCOGS_TOKEN
+    userToken: DISCOGS_TOKEN,
 });
-
-const currency = 'EUR';
-const priceBrackets = [10, 25, 50, 100, 250];
 
 const collection = discogs.user().collection();
 
-const database = discogs.database()
-
+const apiDelay = 3000; // 3 seconds
+const rateLimitDelay = 10000 // 10 seconds
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function getFolderNameForPrice(price) {
     let lowerBound = 0;
     for (const upperBound of priceBrackets) {
         if (price <= upperBound) {
-            return `€${lowerBound} - €${upperBound}`;
+            return `${selectedCurrency.value}${lowerBound} - ${selectedCurrency.value}${upperBound}`;
         }
         lowerBound = upperBound;
     }
-    return `>€${lowerBound}`;
+    return `>${selectedCurrency.value}${lowerBound}`;
 }
 
 async function organizeCollectionByPrice() {
@@ -68,18 +84,15 @@ async function organizeCollectionByPrice() {
             console.log('\n--------------------------------------------------');
             console.log(`Processing ${i + 1}/${allReleases.length}: "${releaseTitle}"`);
 
-            const stats = await database.getRelease(releaseId);
-            console.log(stats);
-            
-            const lowestPrice = stats?.suggested_prices?.[currency]?.value;
-            
+            const lowestPrice = await getLowestPriceForRelease(releaseId);
+
             if (lowestPrice === undefined || lowestPrice === null) {
-                console.log('  - ⚠️ No median price found. Skipping this record.');
+                console.log('  - ⚠️ No lowest price found. Skipping this record.');
                 await wait(apiDelay);
                 continue;
             }
 
-            console.log(`  - 💰 Median Price: ${lowestPrice.toFixed(2)} ${currency}`);
+            console.log(`  - 💰 Lowest Price: ${lowestPrice.toFixed(2)} ${selectedCurrency.name}`);
 
             const targetFolderName = getFolderNameForPrice(lowestPrice);
             let targetFolderId;
@@ -89,22 +102,24 @@ async function organizeCollectionByPrice() {
                 console.log(`  - 📂 Target folder "${targetFolderName}" already exists (ID: ${targetFolderId}).`);
             } else {
                 console.log(`  - ✨ Target folder "${targetFolderName}" does not exist. Creating it...`);
-                const newFolder = await collection.createFolder(targetFolderName);
-                targetFolderId = newFolder.id;
-                folderCache.set(targetFolderName, targetFolderId);
-                console.log(`  - ✅ Created new folder with ID: ${targetFolderId}`);
+                try {
+                    const newFolder = await collection.addFolder(DISCOGS_USERNAME, targetFolderName);
+                    targetFolderId = newFolder.id;
+                    folderCache.set(targetFolderName, targetFolderId);
+                    console.log(`  - ✅ Created new folder with ID: ${targetFolderId}`);
+                } catch (error) {
+                    console.log(error);
+                }
             }
 
-            // Move the release if it's not already in the correct folder
             if (currentFolderId === targetFolderId) {
                 console.log('  - 👍 Record is already in the correct folder.');
             } else {
                 console.log(`  - 🚚 Moving record from folder ${currentFolderId} to ${targetFolderId}...`);
-                await collection.editReleaseInstance(DISCOGS_USERNAME, currentFolderId, releaseId, instanceId, { folder_id: targetFolderId });
+                await collection.editRelease(DISCOGS_USERNAME, currentFolderId, releaseId, instanceId, { folder_id: targetFolderId });
                 console.log('  - ✅ Move successful!');
             }
 
-            // Wait before processing the next record
             await wait(apiDelay);
         }
 
@@ -118,3 +133,26 @@ async function organizeCollectionByPrice() {
 }
 
 organizeCollectionByPrice();
+
+async function getLowestPriceForRelease(releaseId) {
+    const url = `https://api.discogs.com/marketplace/stats/${releaseId}?curr_abbr=${selectedCurrency.name}`;
+    let response;
+    let data;
+    let rateLimitRemaining;
+  
+    do {
+      response = await fetch(url);
+      rateLimitRemaining = parseInt(response.headers.get('x-discogs-ratelimit-remaining'), 10);      
+  
+      if (rateLimitRemaining === 0) {
+        console.log(`⏳ Rate limit reached (remaining: 0) — waiting ${rateLimitDelay}ms before retrying...`);
+        await wait(rateLimitDelay);
+      }
+  
+    } while (rateLimitRemaining === 0);
+  
+    data = await response.json();
+  
+    const lowestPrice = data?.lowest_price?.value;
+    return lowestPrice;
+  }

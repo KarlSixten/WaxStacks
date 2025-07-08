@@ -20,6 +20,7 @@
   "homepage": "https://github.com/karlsixten/waxstacks#readme",
   "dependencies": {
     "disconnect": "^1.2.2",
-    "dotenv": "^16.5.0"
+    "dotenv": "^16.5.0",
+    "inquirer": "^12.7.0"
   }
 }
